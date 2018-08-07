@@ -1,0 +1,5 @@
+out/
+*.bat
+*.cpp
+*.iml
+.idea
