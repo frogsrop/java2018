@@ -1,38 +1,68 @@
 package ru.ifmo.rain.ugay.implementor;
 
+import com.sun.org.apache.xpath.internal.operations.Mod;
 import info.kgeorgiy.java.advanced.implementor.Impler;
 import info.kgeorgiy.java.advanced.implementor.ImplerException;
-import ru.ifmo.rain.ugay.arrayset.ArraySet;
 
+import javax.imageio.IIOImage;
 import java.io.*;
-import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
-
-import java.util.RandomAccess;
-
+import java.util.Objects;
 
 public class Interface implements Impler {
 
     private static HashMap<String, String> objs = new HashMap<>();
 
+    private static StringBuilder outAllDecConstructors(Constructor[] constructors) {
+        StringBuilder ans = new StringBuilder();
+        for (Constructor constructor : constructors) {
+            if (!Modifier.isAbstract(constructor.getModifiers())) {
+                continue;
+            }
+            if (Modifier.isPublic(constructor.getModifiers())) {
+                ans.append("\t").append("public ");
+            }
+            ans.append(constructor.getClass().getSimpleName()).append("Impl(");
+            Parameter[] types = constructor.getParameters();
+            StringBuilder s = new StringBuilder();
+            Integer a = 0;
+            for (Parameter t : types) {
+                s.append(t.getType().getCanonicalName());
+                s.append(" a").append(a.toString()).append(", ");
+                a++;
+            }
+            if (s.length() > 0) {
+                s.delete(s.length() - 2, s.length());
+            }
+            ans.append(s).append(") {}\n");
+        }
+        return ans;
+    }
 
     private static StringBuilder outAllDecMethods(Method[] methods) {
         StringBuilder ans = new StringBuilder();
         for (Method method : methods) {
-//            if (method.getModifiers() != Modifier.STATIC + Modifier.PUBLIC)
-//                ans.append("\t@Override\n");
-            ans.append("\t").append("public ");
+            if (Modifier.isStatic(method.getModifiers()) || method.isDefault() || !Modifier.isAbstract(method.getModifiers())) {
+                continue;
+            }
+            System.err.println(method.getName() + " " + method.getModifiers());
+            if (Modifier.isPublic(method.getModifiers())) {
+                ans.append("\t").append("public ");
+            }
+            if (Modifier.isPrivate(method.getModifiers())) {
+                ans.append("\t").append("private ");
+            }
             ans.append(method.getReturnType().getTypeName());
             ans.append(" ").append(method.getName()).append("(");
             Parameter[] types = method.getParameters();
             StringBuilder s = new StringBuilder();
             Integer a = 0;
-
             for (Parameter t : types) {
                 s.append(t.getType().getCanonicalName());
                 s.append(" a").append(a.toString()).append(", ");
@@ -43,7 +73,7 @@ public class Interface implements Impler {
             }
             ans.append(s).append(") {\n");
             if (method.getReturnType().isArray()) {
-                ans.append("\t\treturn new ").append(method.getReturnType().getTypeName()).delete(ans.length() - 2, ans.length()).append("[0];\n");
+                ans.append("\t\treturn null;\n");
             } else {
                 switch (method.getReturnType().getSimpleName()) {
                     case "int":
@@ -71,7 +101,6 @@ public class Interface implements Impler {
                         ans.append("\t\treturn 0;\n");
                         break;
                     case "void":
-                        ans.append("\t\t\n");
                         break;
                     default:
                         ans.append("\t\treturn null;\n");
@@ -83,40 +112,68 @@ public class Interface implements Impler {
     }
 
     @Override
-    public void implement(Class<?> aClass, Path path) {
+    public void implement(Class<?> aClass, Path path) throws ImplerException {
+        String curType = aClass.getCanonicalName();
+        StringBuilder ans = new StringBuilder();
+        Objects.requireNonNull(aClass);
+        Objects.requireNonNull(path);
 
+        if (aClass.isPrimitive() || aClass.isArray() || Modifier.isFinal(aClass.getModifiers()) || aClass.equals(Enum.class)) {
+            throw new ImplerException("Incorrect type");
+        }
+
+        if (aClass.getPackage() != null) {
+            ans.append("package ").append(aClass.getPackage().getName()).append(";\n");
+        }
+        ans.append("public ").append("class ")
+                .append(aClass.getSimpleName())
+                .append("Impl ");
         if (aClass.isInterface()) {
-//            String curType = aClass.getCanonicalName();
-            String curType = aClass.getCanonicalName();
-//            System.err.println(curType);
-            StringBuilder ans = new StringBuilder("public class " + aClass.getSimpleName() + "Impl" + " implements ");
-            ans.append(curType);
-            ans.append(" {\n");
-            Method[] meths;
-            meths = aClass.getMethods();
-            StringBuilder methodsStr = outAllDecMethods(meths);
-            ans.append(methodsStr);
-
-            ans.append("}");
-            File file = new File(path.toString() + "/" + aClass.getCanonicalName().replaceAll("\\.", "/") + "Impl.java");
-            file.getParentFile().mkdirs();
-            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"))) {
-                writer.write(ans.toString());
-            } catch (IOException ex) {
-                System.out.println(path.toString() + "/" + aClass.getCanonicalName().replaceAll("\\.", "/") + "Impl.java");
-                System.out.println("Unable to write into file");
+            ans.append("implements ");
+        } else {
+            ans.append("extends ");
+        }
+        ans.append(curType);
+        ans.append(" {\n");
+        Constructor[] constructors;
+        constructors = aClass.getConstructors();
+        Method[] meths;
+        meths = aClass.getDeclaredMethods();
+        StringBuilder constructorsStr = outAllDecConstructors(constructors);
+        StringBuilder methodsStr = outAllDecMethods(meths);
+        ans.append(constructorsStr);
+        ans.append(methodsStr);
+        ans.append("}");
+        File file = new File(path.toString() + "/" + curType.replaceAll("\\.", "/") + "Impl.java");
+        if (!file.getParentFile().exists()) {
+            if (!file.getParentFile().mkdirs()) {
+                System.err.println("ERROR");
             }
-            //System.out.println(ans);
+        }
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"))) {
+            writer.write(ans.toString());
+        } catch (IOException ex) {
+            System.out.println(path.toString() + "/" + aClass.getCanonicalName().replaceAll("\\.", "/") + "Impl.java");
+            System.out.println("Unable to write into file");
         }
     }
-    public interface InterfaceWithoutMethods extends RandomAccess {
-    }
-    public class InterfaceWithoutMethodsImpl implements ru.ifmo.rain.ugay.implementor.Interface.InterfaceWithoutMethods {
+
+    public abstract static class any {
+        public void dec() {
+            System.out.println("vasya");
+        }
+
+        public abstract void undecpub();
+
+        abstract void undecpacpriv();
     }
 
     public static void main(String[] args) {
-        Class<?> c = InterfaceWithoutMethods.class;
         Interface q = new Interface();
-        q.implement(c, Paths.get("D:"));
+        try {
+            q.implement(any.class, Paths.get("D:"));
+        } catch (ImplerException e) {
+            e.printStackTrace();
+        }
     }
 }
