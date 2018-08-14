@@ -4,132 +4,124 @@ import info.kgeorgiy.java.advanced.implementor.Impler;
 import info.kgeorgiy.java.advanced.implementor.ImplerException;
 
 import java.io.*;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Parameter;
+import java.lang.reflect.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 public class Interface implements Impler {
 
-    private static StringBuilder outAllDecConstructors(Class<?> aClass) {
-        StringBuilder ans = new StringBuilder();
-        if (!aClass.isInterface()) {
-            for (Constructor constructor : aClass.getDeclaredConstructors()) {
-                if (!Modifier.isPrivate(constructor.getModifiers())) {
-                    if (Modifier.isPublic(constructor.getModifiers())) {
-                        ans.append("\t").append("public ");
-                    }
-                    if (Modifier.isPrivate(constructor.getModifiers())) {
-                        ans.append("\t").append("private ");
-                    }
-                    if (Modifier.isProtected(constructor.getModifiers())) {
-                        ans.append("\t").append("protected ");
-                    }
-                    ans.append(aClass.getSimpleName())
-                            .append("Impl(");
-                    Parameter[] types = constructor.getParameters();
-                    StringBuilder s = new StringBuilder();
-                    StringBuilder names = new StringBuilder();
-                    for (Parameter t : types) {
-                        s.append(t.getType().getCanonicalName());
-                        s.append(" ").append(t.getName()).append(", ");
-                        names.append(t.getName()).append(", ");
-                    }
-
-                    if (s.length() > 0) {
-                        s.delete(s.length() - 2, s.length());
-                        names.delete(names.length() - 2, names.length());
-                    }
-
-                    ans.append(s).append(")");
-                    boolean b = false;
-                    if (constructor.getExceptionTypes().length > 0) {
-                        ans.append(" throws ");
-                    }
-                    for (Class<?> exception : constructor.getExceptionTypes()) {
-                        if (b) {
-                            ans.append(", ");
-                        }
-                        ans.append(exception.getCanonicalName());
-                        b = true;
-                    }
-                    ans.append("{\n").append("\t\tsuper(")
-                            .append(names).append("); \n\t}\n");
-                }
-            }
+    private static StringBuilder getPrefixString(Executable executable) {
+        StringBuilder result = new StringBuilder();
+        if (Modifier.isPublic(executable.getModifiers())) {
+            result.append("\t").append("public ");
         }
-        return ans;
+        if (Modifier.isPrivate(executable.getModifiers())) {
+            result.append("\t").append("private ");
+        }
+        if (Modifier.isProtected(executable.getModifiers())) {
+            result.append("\t").append("protected ");
+        }
+        return result;
     }
 
-    private static StringBuilder outAllDecMethods(Set<Method> methods) {
-        StringBuilder ans = new StringBuilder();
+    private static StringBuilder getConstructorsString(Class<?> aClass) {
+        StringBuilder result = new StringBuilder();
+        for (Constructor constructor : aClass.getDeclaredConstructors()) {
+            if (Modifier.isPrivate(constructor.getModifiers())) {
+                continue;
+            }
+
+            //constructor initialising
+            result.append(getPrefixString(constructor)).append(aClass.getSimpleName()).append("Impl(");
+
+            //params
+            result.append(Arrays.stream(constructor.getParameters())
+                    .map((Parameter x) -> x.getType().getCanonicalName() + " " + x.getName())
+                    .collect(Collectors.joining(", ")))
+                    .append(")");
+
+            //exceptions
+            if (constructor.getExceptionTypes().length > 0) {
+                result.append(" throws ");
+            }
+            result.append(Arrays.stream(constructor.getExceptionTypes())
+                    .map(Class::getCanonicalName)
+                    .collect(Collectors.joining(", ")))
+                    .append("{\n");
+
+            //body
+            result.append("\t\tsuper(")
+                    .append(Arrays.stream(constructor.getParameters())
+                            .map(Parameter::getName)
+                            .collect(Collectors.joining(", ")))
+                    .append("); \n\t}\n");
+        }
+        return result;
+    }
+
+    private static String getReturnTypeString(Class<?> returnType) {
+        String result = "";
+        if (returnType.isArray()) {
+            result = "\t\treturn null;\n";
+        } else {
+            switch (returnType.getSimpleName()) {
+                case "boolean":
+                    result = "\t\treturn false;\n";
+                    break;
+                case "int":
+                case "float":
+                case "byte":
+                case "short":
+                case "long":
+                case "double":
+                case "char":
+                    result = "\t\treturn 0;\n";
+                    break;
+                case "void":
+                    break;
+                default:
+                    result = "\t\treturn null;\n";
+            }
+        }
+        return result;
+    }
+
+    private static StringBuilder getMethodsString(Set<Method> methods) {
+        StringBuilder result = new StringBuilder();
         for (Method method : methods) {
             if (!Modifier.isAbstract(method.getModifiers())) {
                 continue;
             }
-            if (Modifier.isPublic(method.getModifiers())) {
-                ans.append("\t").append("public ");
-            }
-            if (Modifier.isPrivate(method.getModifiers())) {
-                ans.append("\t").append("private ");
-            }
-            if (Modifier.isProtected(method.getModifiers())) {
-                ans.append("\t").append("protected ");
-            }
-            ans.append(method.getReturnType().getTypeName());
-            ans.append(" ").append(method.getName()).append("(");
-            Parameter[] types = method.getParameters();
-            StringBuilder s = new StringBuilder();
-            for (Parameter t : types) {
-                s.append(t.getType().getCanonicalName());
-                s.append(" ").append(t.getName()).append(", ");
-            }
+            //method initialising
+            result.append(getPrefixString(method))
+                    .append(method.getReturnType().getTypeName())
+                    .append(" ")
+                    .append(method.getName())
+                    .append("(");
 
-            if (s.length() > 0) {
-                s.delete(s.length() - 2, s.length());
+            //params
+            result.append(Arrays.stream(method.getParameters())
+                    .map((Parameter x) -> x.getType().getCanonicalName() + " " + x.getName())
+                    .collect(Collectors.joining(", "))).append(") ");
+
+            //exceptions
+            if (method.getExceptionTypes().length > 0) {
+                result.append("throws ");
             }
-            ans.append(s).append(") {\n");
-            if (method.getReturnType().isArray()) {
-                ans.append("\t\treturn null;\n");
-            } else {
-                switch (method.getReturnType().getSimpleName()) {
-                    case "int":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "boolean":
-                        ans.append("\t\treturn false;\n");
-                        break;
-                    case "float":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "byte":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "short":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "long":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "double":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "char":
-                        ans.append("\t\treturn 0;\n");
-                        break;
-                    case "void":
-                        break;
-                    default:
-                        ans.append("\t\treturn null;\n");
-                }
-            }
-            ans.append("\t}\n\n");
+            result.append(Arrays.stream(method.getExceptionTypes()).map(Class::getCanonicalName)
+                    .collect(Collectors.joining(", ")));
+
+            result.append(" {\n");
+            //return obj
+            result.append(getReturnTypeString(method.getReturnType()));
+            result.append("\t}\n\n");
         }
-        return ans;
+        return result;
     }
 
     private void methodsFilter(Class<?> aClass, Set<Method> methods) {
@@ -149,34 +141,35 @@ public class Interface implements Impler {
 
     @Override
     public void implement(Class<?> aClass, Path path) throws ImplerException {
-        String curType = aClass.getCanonicalName();
-        StringBuilder ans = new StringBuilder();
-        Objects.requireNonNull(aClass);
-        Objects.requireNonNull(path);
+        String implementationClassName = aClass.getCanonicalName();
+        StringBuilder result = new StringBuilder();
 
         if (aClass.isPrimitive() || aClass.isArray() || Modifier.isFinal(aClass.getModifiers()) || aClass.equals(Enum.class)) {
-            throw new ImplerException("Incorrect type");
+            throw new ImplerException("Unable to implement type");
         }
 
         if (aClass.getPackage() != null) {
-            ans.append("package ").append(aClass.getPackage().getName()).append(";\n");
+            result.append("package ").append(aClass.getPackage().getName()).append(";\n\n");
         }
-        ans.append("public ").append("class ")
+        result.append("public class ")
                 .append(aClass.getSimpleName())
                 .append("Impl ");
-        if (aClass.isInterface()) {
-            ans.append("implements ");
-        } else {
-            ans.append("extends ");
-        }
-        ans.append(curType);
-        ans.append(" {\n");
 
-        StringBuilder constructorsStr = outAllDecConstructors(aClass);
+        if (aClass.isInterface()) {
+            result.append("implements ");
+        } else {
+            result.append("extends ");
+        }
+
+        result.append(implementationClassName).append(" {\n");
+
+        StringBuilder constructorsStr = getConstructorsString(aClass);
+
         if (constructorsStr.toString().isEmpty() && !aClass.isInterface()) {
             throw new ImplerException();
         }
-        ans.append(constructorsStr);
+
+        result.append(constructorsStr);
 
         Set<Method> meths = new TreeSet<>(Comparator.comparing(x ->
                 (x.getName() + Arrays.toString(x.getParameterTypes()))));
@@ -184,78 +177,33 @@ public class Interface implements Impler {
                 filter((Method x) -> Modifier.isAbstract(x.getModifiers())).
                 collect(Collectors.toList()));
         methodsFilter(aClass, meths);
-        StringBuilder methodsStr = outAllDecMethods(meths);
-        ans.append(methodsStr);
-        ans.append("}");
-        File file = new File(path.toString() + "/" + curType.replaceAll("\\.", "/") + "Impl.java");
+        StringBuilder methodsStr = getMethodsString(meths);
+        result.append(methodsStr).append("}");
+
+        File file = new File(path.toString() + "/" + implementationClassName.replaceAll("\\.", "/") + "Impl.java");
         if (!file.getParentFile().exists()) {
+            System.err.println("No such folder. Attempting to create folder.");
             if (!file.getParentFile().mkdirs()) {
-                System.err.println("ERROR");
+                throw new ImplerException("Unable to create such folder.");
+            } else {
+                System.err.println("Successful attempt.");
             }
         }
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"))) {
-            writer.write(ans.toString());
+            writer.write(result.toString());
         } catch (IOException ex) {
             System.err.println(path.toString() + "/" + aClass.getCanonicalName().replaceAll("\\.", "/") + "Impl.java");
-            System.err.println("Unable to write into file");
-            throw new ImplerException();
-        }
-//        System.out.println(ans);
-    }
-
-    class Aclass {
-        void aclass() {
-            System.out.println("A");
+            throw new ImplerException("Unable to write into file");
         }
     }
 
-    interface Ainterface {
-        void ainterface();
+    interface вася{
+        int a();
+        String[] s(char[] koko, int[] coco) throws IOException;
     }
 
-    class Aimplement implements Ainterface {
-        @Override
-        public void ainterface() {
-            System.out.println("Aimp");
-        }
-    }
-
-    class Bclass {
-        void bclass() {
-            System.out.println("B");
-        }
-    }
-
-    interface Binterface {
-        void bInterface();
-    }
-
-    interface Cinterface extends Ainterface, Binterface {
-    }
-
-    class Cclass extends Aimplement implements Ainterface, Binterface {
-
-        @Override
-        public void bInterface() {
-        }
-    }
-
-    public abstract static class any {
-        public void dec() {
-            System.out.println("vasya");
-        }
-
-        public abstract void undecpub();
-
-        abstract void undecpacpriv();
-    }
-
-    public static void main(String[] args) {
-        Interface q = new Interface();
-        try {
-            q.implement(any.class, Paths.get("D:"));
-        } catch (ImplerException e) {
-            e.printStackTrace();
-        }
+    public static void main(String[] args) throws ImplerException {
+        Impler yanis = new Interface();
+        yanis.implement(вася.class, Paths.get("D:"));
     }
 }
