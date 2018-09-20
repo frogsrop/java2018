@@ -1,0 +1,3 @@
+Manifest-Version: 1.0
+Implementation-Vendor: Ugay Yanis
+Main-Class: ru.ifmo.rain.ugay.implementor.ImplementorJar

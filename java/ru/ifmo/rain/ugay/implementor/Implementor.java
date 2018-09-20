@@ -6,16 +6,31 @@ import info.kgeorgiy.java.advanced.implementor.ImplerException;
 import java.io.*;
 import java.lang.reflect.*;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+/**
+ * Implementation of {@link Impler}.
+ * This class generates code for interfaces and abstract methods of classes.
+ * @author Ugay Yanis
+ * @see ImplementorJar
+ * */
+public class Implementor implements Impler {
 
-public class Interface implements Impler {
+    /**
+     * Creates new instance of object.
+     */
+    Implementor(){ }
 
+    /**
+     * Defines field of view of an executable.
+     * @param executable for which {@link Executable} field of view will be defined
+     * @return {@link StringBuilder} defined field of view
+     */
     private static StringBuilder getPrefixString(Executable executable) {
+
         StringBuilder result = new StringBuilder();
         if (Modifier.isPublic(executable.getModifiers())) {
             result.append("\t").append("public ");
@@ -29,6 +44,10 @@ public class Interface implements Impler {
         return result;
     }
 
+    /**
+     * Generates string of all generated constructors.
+     * @param aClass for which {@link Class} string with constructors string will be generated
+     * @return {@link java.lang.StringBuilder} string of constructor definitions*/
     private static StringBuilder getConstructorsString(Class<?> aClass) {
         StringBuilder result = new StringBuilder();
         for (Constructor constructor : aClass.getDeclaredConstructors()) {
@@ -63,7 +82,10 @@ public class Interface implements Impler {
         }
         return result;
     }
-
+    /**
+     * Defines return object of returnType.
+     * @param returnType for which {@link Class} return object will be defined
+     * @return {@link String} object to be returned*/
     private static String getReturnTypeString(Class<?> returnType) {
         String result = "";
         if (returnType.isArray()) {
@@ -90,6 +112,11 @@ public class Interface implements Impler {
         }
         return result;
     }
+
+    /**
+     * Return string of defined methods.
+     * @param methods for which {@link Set} of methods string of definitions will be generated
+     * @return {@link StringBuilder} object to be returned*/
 
     private static StringBuilder getMethodsString(Set<Method> methods) {
         StringBuilder result = new StringBuilder();
@@ -123,6 +150,11 @@ public class Interface implements Impler {
         }
         return result;
     }
+    /**
+     * Filters non-abstract methods from class aClass.
+     * @param aClass class for filtering
+     * @param methods {@link Set} of methods that will be filtered
+     * */
 
     private void methodsFilter(Class<?> aClass, Set<Method> methods) {
         if (aClass == null) {
@@ -182,11 +214,11 @@ public class Interface implements Impler {
 
         File file = new File(path.toString() + "/" + implementationClassName.replaceAll("\\.", "/") + "Impl.java");
         if (!file.getParentFile().exists()) {
-            System.err.println("No such folder. Attempting to create folder.");
+//            System.err.println("No such folder. Attempting to create folder.");
             if (!file.getParentFile().mkdirs()) {
                 throw new ImplerException("Unable to create such folder.");
             } else {
-                System.err.println("Successful attempt.");
+//                System.err.println("Successful attempt.");
             }
         }
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"))) {
@@ -195,15 +227,5 @@ public class Interface implements Impler {
             System.err.println(path.toString() + "/" + aClass.getCanonicalName().replaceAll("\\.", "/") + "Impl.java");
             throw new ImplerException("Unable to write into file");
         }
-    }
-
-    interface вася{
-        int a();
-        String[] s(char[] koko, int[] coco) throws IOException;
-    }
-
-    public static void main(String[] args) throws ImplerException {
-        Impler yanis = new Interface();
-        yanis.implement(вася.class, Paths.get("D:"));
     }
 }

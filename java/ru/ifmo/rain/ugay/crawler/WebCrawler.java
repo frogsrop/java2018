@@ -1,145 +1,140 @@
 package ru.ifmo.rain.ugay.crawler;
 
-import com.sun.deploy.security.BlockedException;
-import info.kgeorgiy.java.advanced.crawler.Crawler;
-import info.kgeorgiy.java.advanced.crawler.Document;
-import info.kgeorgiy.java.advanced.crawler.Downloader;
-import info.kgeorgiy.java.advanced.crawler.Result;
-import javafx.util.Pair;
+import info.kgeorgiy.java.advanced.crawler.*;
 
 import java.io.IOException;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.SynchronousQueue;
+import java.net.MalformedURLException;
+import java.util.*;
+import java.util.concurrent.*;
 
 public class WebCrawler implements Crawler {
-
-    private final int perHost;
     private Downloader downloader;
-    private Thread[] downloadersTh;
-    private Thread[] workersTh;
-    private BlockingQueue<Pair<Document, Integer>> sites;
-    private BlockingQueue<Pair<String, Integer>> toDownload;
-    private BlockingQueue<String> ans;
-
-    private class Extractor extends Thread {
-        public void run() {
-            Pair<Document, Integer> r;
-            try {
-                while (true) {
-                    try {
-                        r = sites.take();
-                        System.out.println(r.getKey());
-                        System.out.flush();
-                        if (r.getValue() <= 1) {
-                            try {
-                                for (String st : r.getKey().extractLinks()) {
-                                    try {
-                                        toDownload.put(new Pair<>(st, r.getValue() + 1));
-                                    } catch (InterruptedException ex) {
-                                        break;
-                                    }
-                                }
-                            } catch (IOException ignored) {
-                                break;
-                            }
-                        } else {
-                            System.out.println("??");
-                            System.out.flush();
-                        }
-                    } catch (InterruptedException ex) {
-                        break;
-                    }
-                }
-            } catch (BlockedException ex) {
-                System.err.println("suk");
-            }
-        }
-    }
-
-    private class DocumentDownloader extends Thread {
-        public void run() {
-            Pair<String, Integer> r;
-            while (true) {
-                try {
-                    try {
-                        r = toDownload.take();
-                        ans.put(r.getKey());
-                        try {
-                            Document kids = downloader.download(r.getKey());
-                            try {
-                                sites.put(new Pair<>(kids, r.getValue()));
-                            } catch (InterruptedException ex) {
-                                break;
-                            }
-                        } catch (IOException ignored) {
-
-                        }
-                    } catch (InterruptedException ex) {
-                        break;
-                    }
-                } catch (BlockedException ex) {
-                    System.err.println("suk");
-                    break;
-                }
-            }
-        }
-    }
+    private BlockingQueue<Runnable> toDownload;
+    private BlockingQueue<Runnable> toExtract;
+    private ThreadPoolExecutor downloadExecutor;
+    private List<String> stringList;
+    private Map<String, IOException> exceptionMap;
+    private Set<String> downloadedSet;
+    private int perHost;
 
     public WebCrawler(Downloader downloader, int downloaders, int extractors, int perHost) {
-        this.downloader = downloader;
-        downloadersTh = new Thread[downloaders];
-        workersTh = new Thread[extractors];
-        for (int i = 0; i < downloadersTh.length; i++) {
-            downloadersTh[i] = new DocumentDownloader();
-            downloadersTh[i].start();
-        }
-        for (int i = 0; i < workersTh.length; i++) {
-            workersTh[i] = new Extractor();
-            workersTh[i].start();
-        }
-        ans = new LinkedBlockingQueue<>();
-        sites = new LinkedBlockingQueue<>();
         toDownload = new LinkedBlockingQueue<>();
+        toExtract = new LinkedBlockingQueue<>();
+        downloadExecutor = new ThreadPoolExecutor(0, downloaders, 1000, TimeUnit.MILLISECONDS, toDownload);
+        downloadExecutor.prestartAllCoreThreads();
+        stringList = new ArrayList<>();
+        exceptionMap = new TreeMap<>();
+        downloadedSet = new HashSet<>();
+        this.downloader = downloader;
         this.perHost = perHost;
     }
 
-    @Override
-    public Result download(String url, int depth) {
-        try {
-            toDownload.put(new Pair<>(url, 0));
-        } catch (InterruptedException ignored) {
+    class downloadRunnable implements Runnable {
+        int deepness;
+        String url;
 
+        downloadRunnable(String url1, int deepness1) {
+            url = url1;
+            deepness = deepness1;
         }
-        int x = 10000;
-        while (x > 0) {
-            if (ans.size() > 0) {
-                for (String ps : ans) {
-                    System.out.println(ps);
+
+        @Override
+        public void run() {
+            try {
+                Document downloadedDocument = downloader.download(url);
+//                System.err.println("adding to list");
+                synchronized (stringList) {
+                    stringList.add(url);
                 }
-                System.out.println();
-                System.out.flush();
+//                System.err.println("added. Current size: " + stringList.size());
+                addToExtract(downloadedDocument, deepness - 1);
+            } catch (IOException e) {
+                synchronized (exceptionMap) {
+                    exceptionMap.put(url, e);
+                }
             }
         }
-        return null;
+    }
+
+    class extractRunnable implements Runnable {
+        int deepness;
+        Document document;
+
+        extractRunnable(Document document1, int deepness1) {
+            document = document1;
+            deepness = deepness1;
+        }
+
+        @Override
+        public void run() {
+
+        }
+    }
+
+    private void addToDownload(String s, int deepness) {
+//        System.err.println("added: " + s);
+        if (deepness == 0) {
+            return;
+        }
+        if (downloadedSet.add(s)) {
+            downloadExecutor.execute(new downloadRunnable(s, deepness));
+        }
+    }
+
+    private void addToExtract(Document d, int deepness) {
+        try {
+            toExtract.put(new extractRunnable(d, deepness));
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void takeExtract() {
+        while (!toExtract.isEmpty()) {
+            try {
+                try {
+                    Runnable r = toExtract.take();
+                    List<String> extracted = ((extractRunnable) r).document.extractLinks();
+                    int deepness = ((extractRunnable) r).deepness;
+                    for (String url : extracted) {
+                        addToDownload(url, deepness);
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
+    @Override
+    public Result download(String s, int i) {
+        addToDownload(s, i);
+        do {
+            while (toExtract.isEmpty()) {
+            }
+            takeExtract();
+        } while (toDownload.size() > 0 || toExtract.size() > 0);
+        return new Result(stringList, exceptionMap);
     }
 
     @Override
     public void close() {
-        for (Thread aDownloadersTh : downloadersTh) {
-            aDownloadersTh.interrupt();
-        }
-        for (Thread aWorkersTh : workersTh) {
-            aWorkersTh.interrupt();
-        }
+        downloadExecutor.shutdown();
+    }
+
+    public static void main(String[] args) {
         try {
-            for (Thread aDownloadersTh : downloadersTh) {
-                aDownloadersTh.join();
+            WebCrawler wc = new WebCrawler(new CachingDownloader(), 10000, 10000, 100);
+            Result r = wc.download("http://neerc.ifmo.ru/~sta/2017-2018/2-discrete-math/", 2);
+            for (String s : r.getDownloaded()) {
+                System.out.println(s);
             }
-            for (Thread aWorkersTh : workersTh) {
-                aWorkersTh.join();
-            }
-        } catch (InterruptedException ignored) {
+            wc.close();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }
